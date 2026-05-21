@@ -23,11 +23,13 @@ jobs:
 
       - name: Setup swap (30G)
         run: |
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
           sudo fallocate -l 30G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          echo "vm.swappiness=100" | sudo tee -a /etc/sysctl.conf
+          grep -q "vm.swappiness=100" /etc/sysctl.conf || echo "vm.swappiness=100" | sudo tee -a /etc/sysctl.conf
 
       - name: Cache clang
         id: cache-clang
