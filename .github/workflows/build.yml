@@ -15,6 +15,11 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout this repo (patches & workflow)
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
@@ -98,6 +103,12 @@ jobs:
                    drivers/input/lcd_bias/Kconfig; do
             [ -f "$f" ] && tr -d '\000-\010\016-\037\200-\377' < "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
           done
+
+      - name: Apply custom patches
+        working-directory: kernel
+        run: |
+          git apply --ignore-whitespace --recount "${{ github.workspace }}/ci/patches/0001-cpufreq-tune-ondemand-governor.patch"
+          git apply --ignore-whitespace --recount "${{ github.workspace }}/ci/patches/0002-thermal-set-limit-75c.patch"
 
       - name: Set defconfig
         working-directory: kernel
