@@ -87,6 +87,11 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -
 
+      - name: Fix KernelSU for kernel 5.4
+        working-directory: kernel
+        run: |
+          sed -i 's|#include <linux/pgtable.h>|#include <asm/pgtable.h>|' drivers/kernelsu/feature/sucompat.c
+
       - name: Fix Kconfig files
         working-directory: kernel
         run: |
@@ -136,12 +141,23 @@ jobs:
             PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${{ github.workspace }}/${{ env.GCC_ARM }}/bin:${PATH}" \
             -j$(nproc --ignore=1)
 
-      - name: Upload kernel image
+      - name: Package AnyKernel3
+        run: |
+          clone_dir=$(mktemp -d)
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 "$clone_dir"
+          cp "${{ github.workspace }}/ci/anykernel3/anykernel.sh" "$clone_dir/"
+          for f in kernel/out/arch/arm64/boot/Image.gz kernel/out/arch/arm64/boot/Image.gz-dtb; do
+            [ -f "$f" ] && cp "$f" "$clone_dir/"
+          done
+          cp -r kernel/out/arch/arm64/boot/dts "$clone_dir/" 2>/dev/null || true
+          rm -f "$clone_dir/.gitignore"
+          cd "$clone_dir"
+          zip -r9 "Kernel-AnyKernel3-${{ github.run_id }}.zip" . -x ".git/*" -x "README.md"
+          mv "Kernel-AnyKernel3-${{ github.run_id }}.zip" "${{ github.workspace }}"/
+
+      - name: Upload AnyKernel3 zip
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-Image-${{ github.run_id }}
-          path: |
-            kernel/out/arch/arm64/boot/Image.gz
-            kernel/out/arch/arm64/boot/Image.gz-dtb
-            kernel/out/arch/arm64/boot/dts/**/*.dtb
+          name: Kernel-AnyKernel3-${{ github.run_id }}
+          path: Kernel-AnyKernel3-${{ github.run_id }}.zip
           if-no-files-found: warn
