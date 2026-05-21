@@ -82,6 +82,23 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -
 
+      - name: Fix Kconfig files
+        working-directory: kernel
+        run: |
+          # Remove '+' prefix from config/choice/endchoice lines in hxchipset Kconfig
+          sed -i 's/^+config/config/' drivers/input/touchscreen/hxchipset/Kconfig
+          sed -i 's/^+choice/choice/' drivers/input/touchscreen/hxchipset/Kconfig
+          sed -i 's/^+endchoice/endchoice/' drivers/input/touchscreen/hxchipset/Kconfig
+          # Fix hqhardwareinfo Kconfig - use proper prompt string
+          sed -i 's/tristate CONFIG_HQ_HARDWARE_INFO/tristate "HQ Hardware Info"/' drivers/misc/hqhardwareinfo/Kconfig
+          # Strip non-ASCII characters from all Kconfig files with issues
+          for f in drivers/misc/hqhardwareinfo/Kconfig \
+                   drivers/input/touchscreen/hxchipset/Kconfig \
+                   drivers/input/touchscreen/chipone_icnl__9916c/Kconfig \
+                   drivers/input/lcd_bias/Kconfig; do
+            [ -f "$f" ] && tr -d '\000-\010\016-\037\200-\377' < "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+          done
+
       - name: Set defconfig
         working-directory: kernel
         run: |
@@ -89,8 +106,11 @@ jobs:
             ARCH=arm64 \
             LLVM=1 \
             CC=clang \
-            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${PATH}" \
-            unisoc_defconfig
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_COMPAT=${{ github.workspace }}/${{ env.GCC_ARM }}/bin/arm-linux-androideabi- \
+            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${{ github.workspace }}/${{ env.GCC_ARM }}/bin:${PATH}" \
+            sprd_qogirl6_defconfig
 
       - name: Build kernel
         working-directory: kernel
@@ -99,7 +119,10 @@ jobs:
             ARCH=arm64 \
             LLVM=1 \
             CC=clang \
-            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${PATH}" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_COMPAT=${{ github.workspace }}/${{ env.GCC_ARM }}/bin/arm-linux-androideabi- \
+            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${{ github.workspace }}/${{ env.GCC_ARM }}/bin:${PATH}" \
             -j$(nproc --ignore=1)
 
       - name: Upload kernel image
