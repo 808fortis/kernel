@@ -1,0 +1,111 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+env:
+  CLANG_VERSION: clang-r416183b
+  KERNEL_SOURCE: realme-kernel-opensource/realme_C51_C53_Note50_C60_C51_N53-AndroidU-kernel-source
+  GCC_ARM64: aarch64-linux-android-4.9-12-5
+  GCC_ARM: arm-linux-androideabi-4.9-12-5
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_SOURCE }}
+          path: kernel
+
+      - name: Setup swap (30G)
+        run: |
+          sudo fallocate -l 30G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "vm.swappiness=100" | sudo tee -a /etc/sysctl.conf
+
+      - name: Cache clang
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: clang
+          key: clang-${{ env.CLANG_VERSION }}
+
+      - name: Setup clang 12
+        if: steps.cache-clang.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p clang
+          wget -q "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-12.0.0_r12/${CLANG_VERSION}.tar.gz" -O clang.tar.gz
+          tar xzf clang.tar.gz -C clang
+          rm -f clang.tar.gz
+
+      - name: Cache GCC toolchains
+        id: cache-gcc
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GCC_ARM64 }}
+            ${{ env.GCC_ARM }}
+          key: gcc-4.9-v1
+
+      - name: Setup GCC toolchains
+        if: steps.cache-gcc.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth=1 https://github.com/cooked71/${{ env.GCC_ARM64 }}
+          git clone --depth=1 https://github.com/cooked71/${{ env.GCC_ARM }}
+
+      - name: Upstream to latest Android 5.4 common kernel
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          git remote add ack https://android.googlesource.com/kernel/common
+          git fetch ack android12-5.4-lts --depth=100
+          git merge --no-edit FETCH_HEAD
+          echo "UPSTREAM_OK=1" >> $GITHUB_ENV
+
+      - name: Re-checkout if upstream failed (conflict)
+        if: env.UPSTREAM_OK != '1'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_SOURCE }}
+          path: kernel
+
+      - name: Add KOWSU (KernelSU)
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -
+
+      - name: Set defconfig
+        working-directory: kernel
+        run: |
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            CC=clang \
+            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${PATH}" \
+            unisoc_defconfig
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            CC=clang \
+            PATH="${{ github.workspace }}/clang/bin:${{ github.workspace }}/${{ env.GCC_ARM64 }}/bin:${PATH}" \
+            -j$(nproc --ignore=1)
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Image-${{ github.run_id }}
+          path: |
+            kernel/out/arch/arm64/boot/Image.gz
+            kernel/out/arch/arm64/boot/Image.gz-dtb
+            kernel/out/arch/arm64/boot/dts/**/*.dtb
+          if-no-files-found: warn
